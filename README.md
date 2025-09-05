@@ -12,6 +12,12 @@ This repository contains a collection of useful scripts and code snippets organi
 │   │   ├── sample.env         # Configuration template
 │   │   └── .env              # Local config (gitignored)
 │   └── README.md             # Detailed documentation
+├── wifi-ns/                   # WiFi network isolation scripts
+│   ├── setup_docker_wifi.sh   # Network setup script
+│   ├── cleanup_docker_wifi.sh # Network cleanup script
+│   ├── run_on_wifi           # Main shortcut script
+│   ├── copy_run_on_wifi.sh   # Helper copy script
+│   └── README.md             # Detailed documentation
 └── .gitignore                # Git ignore rules
 ```
 
@@ -23,6 +29,14 @@ This repository contains a collection of useful scripts and code snippets organi
 - **Template:** [`sample.env`](sendmail-scripts/scripts/sample.env) - Configuration template
 
 For detailed usage instructions and examples, see the [sendmail-scripts README](sendmail-scripts/README.md).
+
+### WiFi Network Isolation
+**Location:** [`wifi-ns/`](wifi-ns/)
+- **Setup:** [`setup_docker_wifi.sh`](wifi-ns/setup_docker_wifi.sh) - Docker network setup
+- **Cleanup:** [`cleanup_docker_wifi.sh`](wifi-ns/cleanup_docker_wifi.sh) - Network cleanup
+- **Main Script:** [`run_on_wifi`](wifi-ns/run_on_wifi) - Command execution on WiFi
+
+For detailed usage instructions and examples, see the [wifi-ns README](wifi-ns/README.md).
 
 ## 📝 Usage
 
