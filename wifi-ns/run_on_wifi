@@ -1,0 +1,84 @@
+#!/bin/bash
+
+# =================================================================
+# Final Definitive Shortcut for Ollama on a Dedicated Wi-Fi Network
+#
+# - Incorporates user-discovered fixes for the 'dustynv/ollama' image.
+# - Uses a single, robust 'exec -it' method for all Ollama commands,
+#   which correctly shows progress for 'pull' and exits automatically.
+# =================================================================
+
+set -e # Exit on error
+
+# --- Configuration ---
+NETWORK_NAME="wifi_net"
+OLLAMA_IMAGE="docker.ks2.nmt.com.hk/ollama:jetson-r36.4.0"
+MODELS_DIR="/usr/share/ollama/.ollama/models"
+# CORRECTED container model path, as you discovered
+CONTAINER_MODELS_DIR="/data/models/ollama/models"
+
+# --- Help Message ---
+if [ $# -eq 0 ]; then
+    echo "Usage: $(basename "$0") <command>"
+    echo "Example: $(basename "$0") ollama pull gemma:2b"
+    exit 1
+fi
+
+# --- Main Command Logic ---
+case "$1" in
+    ollama)
+        SERVER_NAME_ONESHOT="ollama-oneshot-$$"
+        
+        cleanup() {
+            echo "Cleaning up temporary Ollama server..."
+            docker stop "$SERVER_NAME_ONESHOT" &> /dev/null || true
+            docker rm -f "$SERVER_NAME_ONESHOT" &> /dev/null || true
+        }
+        trap cleanup EXIT
+
+        echo "Starting temporary Ollama server on the Wi-Fi network..."
+        sudo mkdir -p "$MODELS_DIR"
+        sudo chown -R "$(id -u):$(id -g)" "$(dirname "$(dirname "$MODELS_DIR")")" # Chown /usr/share/ollama
+
+        # Add --gpus=all for NVIDIA GPU acceleration
+        # Add explicit 'ollama serve' command, as you discovered
+        docker run -d --gpus=all --name "$SERVER_NAME_ONESHOT" --network="$NETWORK_NAME" \
+          -v "$MODELS_DIR:$CONTAINER_MODELS_DIR" "$OLLAMA_IMAGE" ollama serve
+
+        echo "Waiting for server to respond..."
+        for i in {1..30}; do
+            if docker exec "$SERVER_NAME_ONESHOT" ollama ps &>/dev/null; then
+                echo "Server is ready."
+                break
+            fi
+            sleep 1
+            if [ $i -eq 30 ]; then
+                echo "Error: Server failed to start in time. Logs:"
+                docker logs "$SERVER_NAME_ONESHOT"
+                exit 1
+            fi
+        done
+
+        echo "--------------------------------------------------"
+        echo "Executing: $*"
+        echo "--------------------------------------------------"
+        
+        # SIMPLIFIED EXECUTION: This single line correctly handles BOTH 'pull' and 'run'.
+        # 'pull' will show its progress and exit.
+        # 'run' will be interactive and wait for you.
+        docker exec -it "$SERVER_NAME_ONESHOT" "$@"
+
+        # When the exec command finishes, the script will exit, and the trap will clean up.
+        exit 0
+        ;;
+
+    firefox|*)
+        # Simplified this part as well. All non-ollama commands can be handled here.
+        # Add more specific cases like firefox if needed, but this is a good default.
+        echo "Running generic command '$*' on the Wi-Fi network..."
+        exec docker run --rm -it --network="$NETWORK_NAME" \
+          --user "$(id -u):$(id -g)" \
+          -v "$(pwd)":/work -w /work \
+          nicolaka/netshoot "$@"
+        ;;
+esac
