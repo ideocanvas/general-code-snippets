@@ -1,11 +1,13 @@
 #!/bin/bash
 
 # =================================================================
-# Final Definitive Shortcut for Ollama on a Dedicated Wi-Fi Network
+# Final Definitive Shortcut for Ollama and HF Downloads
 #
 # - Incorporates user-discovered fixes for the 'dustynv/ollama' image.
-# - Uses a single, robust 'exec -it' method for all Ollama commands,
-#   which correctly shows progress for 'pull' and exits automatically.
+# - Uses a single, robust 'exec -it' method for all Ollama commands.
+# - Adds an 'hf download' command that uses a dedicated Docker container
+#   running the official `hf` CLI for robust, authenticated downloads.
+# - Fixes permission errors by setting a local cache directory.
 # =================================================================
 
 set -e # Exit on error
@@ -14,13 +16,25 @@ set -e # Exit on error
 NETWORK_NAME="wifi_net"
 OLLAMA_IMAGE="docker.ks2.nmt.com.hk/ollama:jetson-r36.4.0"
 MODELS_DIR="/usr/share/ollama/.ollama/models"
-# CORRECTED container model path, as you discovered
 CONTAINER_MODELS_DIR="/data/models/ollama/models"
+
+# --- Name of the Docker image for Hugging Face CLI ---
+HF_CLI_IMAGE="huggingface-cli:latest"
 
 # --- Help Message ---
 if [ $# -eq 0 ]; then
-    echo "Usage: $(basename "$0") <command>"
-    echo "Example: $(basename "$0") ollama pull gemma:2b"
+    echo "Usage: $(basename "$0") <command> [args...]"
+    echo ""
+    echo "Ollama Commands:"
+    echo "  ollama <ollama_args>       - Run an Ollama command (e.g., pull, run)."
+    echo "  Example: $(basename "$0") ollama pull gemma:2b"
+    echo ""
+    echo "Hugging Face Commands:"
+    echo "  hf download <repo_id> <file> - Download a file from Hugging Face."
+    echo "  Example: $(basename "$0") hf download meta-llama/Llama-2-7b-chat-hf model.safetensors"
+    echo ""
+    echo "Generic Commands:"
+    echo "  <other>                    - Run any other command in a netshoot container."
     exit 1
 fi
 
@@ -28,7 +42,7 @@ fi
 case "$1" in
     ollama)
         SERVER_NAME_ONESHOT="ollama-oneshot-$$"
-        
+
         cleanup() {
             echo "Cleaning up temporary Ollama server..."
             docker stop "$SERVER_NAME_ONESHOT" &> /dev/null || true
@@ -38,10 +52,8 @@ case "$1" in
 
         echo "Starting temporary Ollama server on the Wi-Fi network..."
         sudo mkdir -p "$MODELS_DIR"
-        sudo chown -R "$(id -u):$(id -g)" "$(dirname "$(dirname "$MODELS_DIR")")" # Chown /usr/share/ollama
+        sudo chown -R "$(id -u):$(id -g)" "$(dirname "$(dirname "$MODELS_DIR")")"
 
-        # Add --gpus=all for NVIDIA GPU acceleration
-        # Add explicit 'ollama serve' command, as you discovered
         docker run -d --gpus=all --name "$SERVER_NAME_ONESHOT" --network="$NETWORK_NAME" \
           -v "$MODELS_DIR:$CONTAINER_MODELS_DIR" "$OLLAMA_IMAGE" ollama serve
 
@@ -60,21 +72,62 @@ case "$1" in
         done
 
         echo "--------------------------------------------------"
-        echo "Executing: $*"
+        # Shift the first argument 'ollama' off, pass the rest
+        shift
+        echo "Executing: ollama $*"
         echo "--------------------------------------------------"
-        
-        # SIMPLIFIED EXECUTION: This single line correctly handles BOTH 'pull' and 'run'.
-        # 'pull' will show its progress and exit.
-        # 'run' will be interactive and wait for you.
-        docker exec -it "$SERVER_NAME_ONESHOT" "$@"
 
-        # When the exec command finishes, the script will exit, and the trap will clean up.
+        docker exec -it "$SERVER_NAME_ONESHOT" ollama "$@"
         exit 0
         ;;
 
-    firefox|*)
-        # Simplified this part as well. All non-ollama commands can be handled here.
-        # Add more specific cases like firefox if needed, but this is a good default.
+    hf)
+        # --- Hugging Face Command Handling ---
+        shift # Remove 'hf' from arguments list, $1 is now the subcommand
+
+        case "$1" in
+            download)
+                if [ $# -ne 3 ]; then
+                    echo "Usage: $(basename "$0") hf download <repo_id> <filename>"
+                    echo "Example: $(basename "$0") hf download meta-llama/Llama-2-7b-chat-hf model.safetensors"
+                    exit 1
+                fi
+
+                if [ -z "$HF_TOKEN" ]; then
+                    echo "Error: Hugging Face token not found."
+                    echo "Please set the environment variable: export HF_TOKEN='hf_...'"
+                    exit 1
+                fi
+
+                REPO_ID="$2"
+                FILENAME="$3"
+
+                echo "--------------------------------------------------"
+                echo "Downloading via hf-cli container"
+                echo "Repo:     $REPO_ID"
+                echo "File:     $FILENAME"
+                echo "--------------------------------------------------"
+
+                # The rest of the arguments are passed to the container's entrypoint
+                # "$@" will expand to "download <repo_id> <filename>"
+                exec docker run --rm -it --network="$NETWORK_NAME" \
+                  --user "$(id -u):$(id -g)" \
+                  -v "$(pwd)":/work \
+                  -e HUGGING_FACE_HUB_TOKEN="$HF_TOKEN" \
+                  -e HF_HOME=/work/.cache \
+                  "$HF_CLI_IMAGE" \
+                  "$@" --local-dir .
+                ;;
+            *)
+                echo "Error: Unknown Hugging Face command '$1'."
+                echo "Currently supported: download"
+                exit 1
+                ;;
+        esac
+        ;;
+
+    *)
+        # Generic command runner for things like firefox, etc.
         echo "Running generic command '$*' on the Wi-Fi network..."
         exec docker run --rm -it --network="$NETWORK_NAME" \
           --user "$(id -u):$(id -g)" \
